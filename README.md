@@ -10,14 +10,52 @@ Serve Starlink dish location as NMEA 0183 sentences for OpenCPN (or any NMEA cli
 
 ## Requirements
 
-- Python 3.9+
 - Starlink dish reachable on your LAN
-- Python dependency: `starlink-grpc-tools`
+- Python 3.9+ installed (includes `pip`)
 
-## Install
+## Install (first-time setup)
+
+### macOS
+
+1) Install Python:
 
 ```
-pip install starlink-grpc-tools
+brew install python
+```
+
+2) Install the dependency:
+
+```
+python3 -m pip install --upgrade pip
+python3 -m pip install starlink-grpc-tools
+```
+
+### Windows
+
+1) Install Python 3.9+ from https://www.python.org/downloads/
+   - Check **Add Python to PATH** during install.
+
+2) Open PowerShell and install the dependency:
+
+```
+py -m pip install --upgrade pip
+py -m pip install starlink-grpc-tools
+```
+
+### Linux
+
+1) Install Python and pip (example for Debian/Ubuntu):
+
+```
+sudo apt-get update
+sudo apt-get install -y python3 python3-pip
+```
+
+2) Install the dependency:
+
+```
+python3 -m pip install --upgrade pip
+python3 -m pip install starlink-grpc-tools
 ```
 
 ## Run
