@@ -102,6 +102,24 @@ sudo systemctl enable --now starlink-nmea.service
 journalctl -u starlink-nmea.service -f
 ```
 
+## Run at Startup (Windows Task Scheduler)
+
+1) Place the repo at `C:\Users\<you>\starlink-nmea`.
+
+2) Import the scheduled task:
+
+```
+schtasks /Create /TN "Starlink NMEA Bridge" /XML "C:\Users\<you>\starlink-nmea\windows\StarlinkNmeaTask.xml"
+```
+
+3) Run once to test:
+
+```
+schtasks /Run /TN "Starlink NMEA Bridge"
+```
+
+The task runs `windows\StarlinkNmea.ps1`. Edit it if you want a different port or dish host.
+
 ## Starlink Notes
 
 No special Starlink configuration is usually required.
