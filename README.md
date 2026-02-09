@@ -1,0 +1,65 @@
+# Starlink NMEA Bridge
+
+Serve Starlink dish location as NMEA 0183 sentences for OpenCPN (or any NMEA client).
+
+## Features
+
+- Emits `GPRMC` + `GPGGA` every second
+- TCP server mode (OpenCPN compatible)
+- UDP output mode (optional broadcast)
+
+## Requirements
+
+- Python 3.9+
+- Starlink dish reachable on your LAN
+- Python dependency: `starlink-grpc-tools`
+
+## Install
+
+```
+pip install starlink-grpc-tools
+```
+
+## Run
+
+TCP server (recommended for OpenCPN):
+
+```
+python3 starlink_nmea.py --mode tcp --host 0.0.0.0 --port 10110 --verbose
+```
+
+UDP output (to local OpenCPN or other consumer):
+
+```
+python3 starlink_nmea.py --mode udp --host 127.0.0.1 --port 10110 --verbose
+```
+
+UDP broadcast (for LAN listeners):
+
+```
+python3 starlink_nmea.py --mode udp --broadcast --host 255.255.255.255 --port 10110
+```
+
+## OpenCPN Setup
+
+1) Add a connection:
+   - Type: `Network`
+   - Protocol: `TCP` (or `UDP`)
+   - Address: `127.0.0.1` (or the server host)
+   - Port: `10110` (or your chosen port)
+
+2) Enable the connection.
+
+## Starlink Notes
+
+No special Starlink configuration is usually required.
+
+- Your computer must reach the dish management IP, typically `192.168.100.1`.
+- If using a third-party router in bypass mode, add a static route to `192.168.100.1`.
+- Ensure local firewall rules allow access to the dish API.
+
+## Troubleshooting
+
+- **No position data**: Confirm the dish is reachable and `starlink-grpc-tools` is installed.
+- **OpenCPN shows no GPS**: Check IP/port match and firewall rules.
+- **Multiple clients**: Use TCP mode; it supports multiple connections.
