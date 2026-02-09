@@ -2,6 +2,8 @@
 
 Serve Starlink dish location as NMEA 0183 sentences for OpenCPN (or any NMEA client).
 
+***IMPORTANT:  USE AT YOUR OWN RISK.  STARLINK IS NOT INTENDED TO BE A PRIMARY OR OFFICIAL MEANS OF NAVIGATION.  AUTHOR ASSUMES NO LIABILITY FOR THIS DEMONSTRATION CODE***
+
 ## Features
 
 - Emits `GPRMC` + `GPGGA` every second
