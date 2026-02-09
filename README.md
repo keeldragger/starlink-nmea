@@ -13,6 +13,29 @@ Serve Starlink dish location as NMEA 0183 sentences for OpenCPN (or any NMEA cli
 - Starlink dish reachable on your LAN
 - Python 3.9+ installed (includes `pip`)
 
+## Get the Code (macOS)
+
+### Option A: Download ZIP (no Git needed)
+
+1) Open https://github.com/keeldragger/starlink-nmea
+2) Click **Code** → **Download ZIP**
+3) Unzip, then open Terminal in the extracted folder
+
+### Option B: Git clone
+
+1) Install Git (Command Line Tools):
+
+```
+xcode-select --install
+```
+
+2) Clone the repo:
+
+```
+git clone https://github.com/keeldragger/starlink-nmea.git
+cd starlink-nmea
+```
+
 ## Install (first-time setup)
 
 ### macOS
