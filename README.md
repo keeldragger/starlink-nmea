@@ -67,6 +67,29 @@ launchctl load ~/Library/LaunchAgents/com.keeldragger.starlink-nmea.plist
 launchctl unload ~/Library/LaunchAgents/com.keeldragger.starlink-nmea.plist
 ```
 
+## Run at Startup (Linux systemd)
+
+1) Copy the service file and update paths if needed:
+
+```
+sudo mkdir -p /opt/starlink-nmea
+sudo cp -r . /opt/starlink-nmea
+sudo cp systemd/starlink-nmea.service /etc/systemd/system/
+```
+
+2) Enable and start:
+
+```
+sudo systemctl daemon-reload
+sudo systemctl enable --now starlink-nmea.service
+```
+
+3) View logs:
+
+```
+journalctl -u starlink-nmea.service -f
+```
+
 ## Starlink Notes
 
 No special Starlink configuration is usually required.

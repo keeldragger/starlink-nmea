@@ -1,0 +1,14 @@
+[Unit]
+Description=Starlink NMEA Bridge
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/starlink-nmea
+ExecStart=/usr/bin/python3 /opt/starlink-nmea/starlink_nmea.py --mode tcp --host 0.0.0.0 --port 10110
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
