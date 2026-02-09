@@ -50,6 +50,23 @@ python3 starlink_nmea.py --mode udp --broadcast --host 255.255.255.255 --port 10
 
 2) Enable the connection.
 
+## Run at Startup (macOS launchd)
+
+1) Update the script path in `launchd/com.keeldragger.starlink-nmea.plist` if needed.
+
+2) Install and load:
+
+```
+cp launchd/com.keeldragger.starlink-nmea.plist ~/Library/LaunchAgents/
+launchctl load ~/Library/LaunchAgents/com.keeldragger.starlink-nmea.plist
+```
+
+3) Stop/unload:
+
+```
+launchctl unload ~/Library/LaunchAgents/com.keeldragger.starlink-nmea.plist
+```
+
 ## Starlink Notes
 
 No special Starlink configuration is usually required.

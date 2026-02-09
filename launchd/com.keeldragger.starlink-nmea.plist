@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <key>Label</key>
+    <string>com.keeldragger.starlink-nmea</string>
+    <key>ProgramArguments</key>
+    <array>
+      <string>/usr/bin/python3</string>
+      <string>/Users/markbunch/starlink-nmea/starlink_nmea.py</string>
+      <string>--mode</string>
+      <string>tcp</string>
+      <string>--host</string>
+      <string>0.0.0.0</string>
+      <string>--port</string>
+      <string>10110</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/tmp/starlink-nmea.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/starlink-nmea.err.log</string>
+  </dict>
+</plist>
