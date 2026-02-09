@@ -17,9 +17,10 @@ Serve Starlink dish location as NMEA 0183 sentences for OpenCPN (or any NMEA cli
 
 ### macOS
 
-1) Install Python:
+1) Install Homebrew and Python:
 
 ```
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 brew install python
 ```
 
