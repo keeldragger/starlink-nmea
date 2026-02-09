@@ -10,9 +10,8 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
-import math
+import os
 import socket
-import sys
 import time
 from typing import Any, Dict, Optional, Tuple
 
@@ -117,7 +116,50 @@ def _extract_location(payload: Any) -> Optional[Dict[str, float]]:
     return None
 
 
-def get_starlink_location() -> Optional[Dict[str, float]]:
+def _probe_port(host: str, port: int, timeout_s: float) -> bool:
+    try:
+        with socket.create_connection((host, port), timeout=timeout_s):
+            return True
+    except OSError:
+        return False
+
+
+def detect_dish_host(explicit: Optional[str]) -> Optional[str]:
+    if explicit:
+        return explicit
+
+    env_host = os.environ.get("STARLINK_DISH_IP") or os.environ.get("STARLINK_DISH_HOST")
+    if env_host:
+        return env_host
+
+    for hostname in ("dish", "starlink"):
+        try:
+            ip = socket.gethostbyname(hostname)
+            if ip:
+                return ip
+        except socket.gaierror:
+            pass
+
+    default_ip = "192.168.100.1"
+    if _probe_port(default_ip, 9200, 0.5):
+        return default_ip
+
+    return None
+
+
+def _call_with_host(func: Any, dish_host: Optional[str]) -> Any:
+    if dish_host:
+        try:
+            return func(host=dish_host)
+        except TypeError:
+            try:
+                return func(dish_host)
+            except TypeError:
+                return func()
+    return func()
+
+
+def get_starlink_location(dish_host: Optional[str]) -> Optional[Dict[str, float]]:
     try:
         import starlink_grpc  # type: ignore
     except Exception:
@@ -127,7 +169,7 @@ def get_starlink_location() -> Optional[Dict[str, float]]:
     try:
         dish = getattr(starlink_grpc, "dish", None)
         if dish and hasattr(dish, "get_location"):
-            return _extract_location(dish.get_location())
+            return _extract_location(_call_with_host(dish.get_location, dish_host))
     except Exception:
         pass
 
@@ -135,21 +177,27 @@ def get_starlink_location() -> Optional[Dict[str, float]]:
     try:
         grpc_mod = getattr(starlink_grpc, "grpc", None)
         if grpc_mod and hasattr(grpc_mod, "get_location"):
-            return _extract_location(grpc_mod.get_location())
+            return _extract_location(_call_with_host(grpc_mod.get_location, dish_host))
     except Exception:
         pass
 
     # Try get_status()
     try:
         if hasattr(starlink_grpc, "get_status"):
-            return _extract_location(starlink_grpc.get_status())
+            return _extract_location(_call_with_host(starlink_grpc.get_status, dish_host))
     except Exception:
         pass
 
     return None
 
 
-def serve_tcp(bind_host: str, port: int, interval_s: float, verbose: bool) -> None:
+def serve_tcp(
+    bind_host: str,
+    port: int,
+    interval_s: float,
+    dish_host: Optional[str],
+    verbose: bool,
+) -> None:
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     server.bind((bind_host, port))
@@ -159,6 +207,9 @@ def serve_tcp(bind_host: str, port: int, interval_s: float, verbose: bool) -> No
     clients: list[socket.socket] = []
     if verbose:
         print(f"TCP server listening on {bind_host}:{port}")
+
+    resolved_host = detect_dish_host(dish_host)
+    last_detect = time.monotonic()
 
     while True:
         # Accept new clients
@@ -172,7 +223,10 @@ def serve_tcp(bind_host: str, port: int, interval_s: float, verbose: bool) -> No
             except BlockingIOError:
                 break
 
-        location = get_starlink_location()
+        location = get_starlink_location(resolved_host)
+        if location is None and time.monotonic() - last_detect > 30:
+            resolved_host = detect_dish_host(dish_host)
+            last_detect = time.monotonic()
         if location:
             ts = dt.datetime.utcnow()
             rmc = build_rmc(ts, location["lat"], location["lon"])
@@ -197,15 +251,28 @@ def serve_tcp(bind_host: str, port: int, interval_s: float, verbose: bool) -> No
         time.sleep(interval_s)
 
 
-def serve_udp(target_host: str, port: int, interval_s: float, broadcast: bool, verbose: bool) -> None:
+def serve_udp(
+    target_host: str,
+    port: int,
+    interval_s: float,
+    dish_host: Optional[str],
+    broadcast: bool,
+    verbose: bool,
+) -> None:
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     if broadcast:
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
     if verbose:
         print(f"UDP output to {target_host}:{port} (broadcast={broadcast})")
 
+    resolved_host = detect_dish_host(dish_host)
+    last_detect = time.monotonic()
+
     while True:
-        location = get_starlink_location()
+        location = get_starlink_location(resolved_host)
+        if location is None and time.monotonic() - last_detect > 30:
+            resolved_host = detect_dish_host(dish_host)
+            last_detect = time.monotonic()
         if location:
             ts = dt.datetime.utcnow()
             rmc = build_rmc(ts, location["lat"], location["lon"])
@@ -223,6 +290,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--host", default="0.0.0.0", help="Bind host for TCP or target for UDP.")
     parser.add_argument("--port", type=int, default=10110, help="Port for TCP/UDP.")
     parser.add_argument("--interval", type=float, default=1.0, help="Seconds between updates.")
+    parser.add_argument(
+        "--dish-host",
+        default=None,
+        help="Dish IP/host (auto-detected if omitted).",
+    )
     parser.add_argument("--broadcast", action="store_true", help="Enable UDP broadcast.")
     parser.add_argument("--verbose", action="store_true", help="Verbose output.")
     return parser.parse_args()
@@ -231,9 +303,9 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     if args.mode == "tcp":
-        serve_tcp(args.host, args.port, args.interval, args.verbose)
+        serve_tcp(args.host, args.port, args.interval, args.dish_host, args.verbose)
     else:
-        serve_udp(args.host, args.port, args.interval, args.broadcast, args.verbose)
+        serve_udp(args.host, args.port, args.interval, args.dish_host, args.broadcast, args.verbose)
     return 0
 
 

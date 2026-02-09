@@ -34,6 +34,18 @@ UDP output (to local OpenCPN or other consumer):
 python3 starlink_nmea.py --mode udp --host 127.0.0.1 --port 10110 --verbose
 ```
 
+Dish auto-detection is enabled by default. To force a specific dish IP:
+
+```
+python3 starlink_nmea.py --mode tcp --dish-host 192.168.100.1
+```
+
+Or via environment variable:
+
+```
+export STARLINK_DISH_IP=192.168.100.1
+```
+
 UDP broadcast (for LAN listeners):
 
 ```
