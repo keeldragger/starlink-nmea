@@ -84,12 +84,34 @@ python3 -m pip install --upgrade pip
 python3 -m pip install starlink-grpc-tools
 ```
 
+## Data sources
+
+The script gets location in this order:
+
+1. **gRPC** (starlink-grpc-tools) from the dish on port 9200  
+2. **HTTP fallback**: GET `http://<dish>/api/diagnostic` or `http://<dish>/` (if the dish serves JSON)  
+3. **Test file**: use `--test-file path/to/diagnostic_response.json` to run without a dish
+
+Starlink diagnostic JSON (from the dish or from 192.168.100.1) uses this shape; the script parses it:
+
+```json
+{"location": {"latitude": 33.72, "longitude": -118.28, "altitudeMeters": -30.1}, ...}
+```
+
+Sample test data: `tests/diagnostic_response.json`. Run tests: `python3 tests/test_location_from_diagnostic.py`.
+
 ## Run
 
 TCP server (recommended for OpenCPN):
 
 ```
 python3 starlink_nmea.py --mode tcp --host 0.0.0.0 --port 10110 --verbose
+```
+
+Test without a dish (using saved diagnostic JSON):
+
+```
+python3 starlink_nmea.py --mode tcp --port 10110 --test-file tests/diagnostic_response.json --verbose
 ```
 
 UDP output (to local OpenCPN or other consumer):
@@ -118,13 +140,24 @@ python3 starlink_nmea.py --mode udp --broadcast --host 255.255.255.255 --port 10
 
 ## OpenCPN Setup
 
-1) Add a connection:
-   - Type: `Network`
-   - Protocol: `TCP` (or `UDP`)
-   - Address: `127.0.0.1` (or the server host)
-   - Port: `10110` (or your chosen port)
+**Important:** OpenCPN does not accept `localhost`; use `127.0.0.1` when connecting on the same machine. After adding the connection, **close the Options/Connections window** so the Data Monitor (NMEA Debug) can show incoming sentences.
 
-2) Enable the connection.
+### TCP (recommended)
+
+1) Options → Connections → Add Connection → **Network**.
+2) Set **Data connection** to connect *to* a server (OpenCPN is the client):
+   - **Address:** `127.0.0.1` (or the host running `starlink_nmea.py`)
+   - **Port:** `10110`
+   - **Protocol:** NMEA 0183
+3) Enable **Receive input** on this port. Enable the connection, then **Apply**.
+4) Close the Options dialog. Open **Tools → Data Monitor** (or NMEA Debug) to confirm sentences (e.g. GPRMC, GPGGA) are received.
+
+### UDP
+
+1) In OpenCPN: Add Connection → Network → **UDP**. Choose **Listen** and set **Port** (e.g. `10110`). Apply.
+2) Run the bridge *sending to* that port:  
+   `python3 starlink_nmea.py --mode udp --host 127.0.0.1 --port 10110`
+3) Close the Options dialog and check Data Monitor for incoming NMEA.
 
 ## Run at Startup (macOS launchd)
 
@@ -195,5 +228,9 @@ No special Starlink configuration is usually required.
 ## Troubleshooting
 
 - **No position data**: Confirm the dish is reachable and `starlink-grpc-tools` is installed.
-- **OpenCPN shows no GPS**: Check IP/port match and firewall rules.
+- **OpenCPN shows no GPS / nothing in Data Monitor**:
+  - Use **127.0.0.1** in the connection address, not `localhost`.
+  - For TCP: ensure the connection is set to **connect to** Address:Port (OpenCPN as client), not “listen”.
+  - **Close the Options/Connections window** after Apply; the Data Monitor often does not show input while that dialog is open.
+  - Run with `--verbose` and confirm the bridge prints “Client connected” when OpenCPN connects (TCP).
 - **Multiple clients**: Use TCP mode; it supports multiple connections.

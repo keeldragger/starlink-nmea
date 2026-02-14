@@ -10,9 +10,11 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import json
 import os
 import socket
 import time
+import urllib.request
 from typing import Any, Dict, Optional, Tuple
 
 
@@ -91,7 +93,7 @@ def _extract_location(payload: Any) -> Optional[Dict[str, float]]:
     # Direct fields
     lat = _to_float(_get_attr(payload, "lat", "latitude"))
     lon = _to_float(_get_attr(payload, "lon", "longitude"))
-    alt = _to_float(_get_attr(payload, "alt", "altitude", "altitude_m"))
+    alt = _to_float(_get_attr(payload, "alt", "altitude", "altitude_m", "altitudeMeters"))
 
     if lat is not None and lon is not None:
         return {"lat": lat, "lon": lon, "alt": alt or 0.0}
@@ -101,15 +103,16 @@ def _extract_location(payload: Any) -> Optional[Dict[str, float]]:
     if gps_stats:
         lat = _to_float(_get_attr(gps_stats, "lat", "latitude"))
         lon = _to_float(_get_attr(gps_stats, "lon", "longitude"))
-        alt = _to_float(_get_attr(gps_stats, "alt", "altitude", "altitude_m"))
+        alt = _to_float(_get_attr(gps_stats, "alt", "altitude", "altitude_m", "altitudeMeters"))
         if lat is not None and lon is not None:
             return {"lat": lat, "lon": lon, "alt": alt or 0.0}
 
+    # Starlink HTTP diagnostic format: top-level "location" with latitude, longitude, altitudeMeters
     location = _get_attr(payload, "location", "position")
     if location:
         lat = _to_float(_get_attr(location, "lat", "latitude"))
         lon = _to_float(_get_attr(location, "lon", "longitude"))
-        alt = _to_float(_get_attr(location, "alt", "altitude", "altitude_m"))
+        alt = _to_float(_get_attr(location, "alt", "altitude", "altitude_m", "altitudeMeters"))
         if lat is not None and lon is not None:
             return {"lat": lat, "lon": lon, "alt": alt or 0.0}
 
@@ -159,6 +162,48 @@ def _call_with_host(func: Any, dish_host: Optional[str]) -> Any:
     return func()
 
 
+def get_starlink_location_http(dish_host: Optional[str]) -> Optional[Dict[str, float]]:
+    """
+    Fetch diagnostic JSON from Starlink dish HTTP API (e.g. 192.168.100.1).
+    Response format: {"location": {"latitude", "longitude", "altitudeMeters"}, ...}
+    """
+    if not dish_host:
+        return None
+    for path in ("/api/diagnostic", "/"):
+        try:
+            url = f"http://{dish_host}{path}"
+            req = urllib.request.Request(url, headers={"User-Agent": "StarlinkNMEA/1.0"})
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                if resp.getheader("Content-Type", "").strip().split(";")[0] != "application/json":
+                    body = resp.read().decode("utf-8", errors="replace")
+                    # Some dish UIs return HTML with embedded JSON; try to find a JSON object
+                    if "location" not in body or "latitude" not in body:
+                        continue
+                    start = body.find("{")
+                    if start == -1:
+                        continue
+                    depth = 0
+                    end = -1
+                    for i in range(start, len(body)):
+                        if body[i] == "{":
+                            depth += 1
+                        elif body[i] == "}":
+                            depth -= 1
+                            if depth == 0:
+                                end = i + 1
+                                break
+                    if end > start:
+                        data = json.loads(body[start:end])
+                    else:
+                        continue
+                else:
+                    data = json.loads(resp.read().decode("utf-8"))
+            return _extract_location(data)
+        except Exception:
+            continue
+    return None
+
+
 def get_starlink_location(dish_host: Optional[str]) -> Optional[Dict[str, float]]:
     try:
         import starlink_grpc  # type: ignore
@@ -188,7 +233,18 @@ def get_starlink_location(dish_host: Optional[str]) -> Optional[Dict[str, float]
     except Exception:
         pass
 
-    return None
+    # Fallback: fetch diagnostic JSON via HTTP (dish at 192.168.100.1)
+    return get_starlink_location_http(dish_host)
+
+
+def get_starlink_location_from_file(path: str) -> Optional[Dict[str, float]]:
+    """Load diagnostic JSON from a file and extract location (for testing)."""
+    try:
+        with open(path, "r") as f:
+            data = json.load(f)
+        return _extract_location(data)
+    except Exception:
+        return None
 
 
 def serve_tcp(
@@ -196,6 +252,7 @@ def serve_tcp(
     port: int,
     interval_s: float,
     dish_host: Optional[str],
+    test_file: Optional[str],
     verbose: bool,
 ) -> None:
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -205,10 +262,11 @@ def serve_tcp(
     server.setblocking(False)
 
     clients: list[socket.socket] = []
+    nmea_sample_shown = False
     if verbose:
         print(f"TCP server listening on {bind_host}:{port}")
 
-    resolved_host = detect_dish_host(dish_host)
+    resolved_host = None if test_file else detect_dish_host(dish_host)
     last_detect = time.monotonic()
 
     while True:
@@ -223,14 +281,23 @@ def serve_tcp(
             except BlockingIOError:
                 break
 
-        location = get_starlink_location(resolved_host)
-        if location is None and time.monotonic() - last_detect > 30:
+        location = (
+            get_starlink_location_from_file(test_file)
+            if test_file
+            else get_starlink_location(resolved_host)
+        )
+        if not test_file and location is None and time.monotonic() - last_detect > 30:
             resolved_host = detect_dish_host(dish_host)
             last_detect = time.monotonic()
         if location:
             ts = dt.datetime.utcnow()
             rmc = build_rmc(ts, location["lat"], location["lon"])
             gga = build_gga(ts, location["lat"], location["lon"], location.get("alt"))
+            if verbose and not nmea_sample_shown:
+                nmea_sample_shown = True
+                print("Sample NMEA (first output):")
+                print(f"  {rmc}")
+                print(f"  {gga}")
             payload = f"{rmc}\r\n{gga}\r\n".encode("ascii")
             alive: list[socket.socket] = []
             for client in clients:
@@ -256,27 +323,38 @@ def serve_udp(
     port: int,
     interval_s: float,
     dish_host: Optional[str],
+    test_file: Optional[str],
     broadcast: bool,
     verbose: bool,
 ) -> None:
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     if broadcast:
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+    nmea_sample_shown = False
     if verbose:
         print(f"UDP output to {target_host}:{port} (broadcast={broadcast})")
 
-    resolved_host = detect_dish_host(dish_host)
+    resolved_host = None if test_file else detect_dish_host(dish_host)
     last_detect = time.monotonic()
 
     while True:
-        location = get_starlink_location(resolved_host)
-        if location is None and time.monotonic() - last_detect > 30:
+        location = (
+            get_starlink_location_from_file(test_file)
+            if test_file
+            else get_starlink_location(resolved_host)
+        )
+        if not test_file and location is None and time.monotonic() - last_detect > 30:
             resolved_host = detect_dish_host(dish_host)
             last_detect = time.monotonic()
         if location:
             ts = dt.datetime.utcnow()
             rmc = build_rmc(ts, location["lat"], location["lon"])
             gga = build_gga(ts, location["lat"], location["lon"], location.get("alt"))
+            if verbose and not nmea_sample_shown:
+                nmea_sample_shown = True
+                print("Sample NMEA (first output):")
+                print(f"  {rmc}")
+                print(f"  {gga}")
             payload = f"{rmc}\r\n{gga}\r\n".encode("ascii")
             sock.sendto(payload, (target_host, port))
         elif verbose:
@@ -295,6 +373,12 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Dish IP/host (auto-detected if omitted).",
     )
+    parser.add_argument(
+        "--test-file",
+        default=None,
+        metavar="PATH",
+        help="Use diagnostic JSON from file (for testing without dish).",
+    )
     parser.add_argument("--broadcast", action="store_true", help="Enable UDP broadcast.")
     parser.add_argument("--verbose", action="store_true", help="Verbose output.")
     return parser.parse_args()
@@ -303,9 +387,24 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     if args.mode == "tcp":
-        serve_tcp(args.host, args.port, args.interval, args.dish_host, args.verbose)
+        serve_tcp(
+            args.host,
+            args.port,
+            args.interval,
+            args.dish_host,
+            args.test_file,
+            args.verbose,
+        )
     else:
-        serve_udp(args.host, args.port, args.interval, args.dish_host, args.broadcast, args.verbose)
+        serve_udp(
+            args.host,
+            args.port,
+            args.interval,
+            args.dish_host,
+            args.test_file,
+            args.broadcast,
+            args.verbose,
+        )
     return 0
 
 
